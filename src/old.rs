@@ -30,6 +30,12 @@ use usb_pd::{
     sink::Sink,
 };
 
+/// The linker will place this boot block at the start of our program image. We
+/// need this to help the ROM bootloader get our code up and running.
+// #[no_mangle]
+// #[used]
+// pub static BOOT2_FIRMWARE: [u8; 256] = rp2040_boot2::BOOT_LOADER_W25Q080;
+
 #[entry]
 fn main() -> ! {
     info!("Program start");
@@ -54,7 +60,7 @@ fn main() -> ! {
 
     let mut delay = cortex_m::delay::Delay::new(core.SYST, clocks.system_clock.freq().to_Hz());
 
-    let pins = bsp::Pins::new(
+    let pins = gpio::Pins::new(
         pac.IO_BANK0,
         pac.PADS_BANK0,
         sio.gpio_bank0,
@@ -68,27 +74,6 @@ fn main() -> ! {
     // LED to one of the GPIO pins, and reference that pin here.
     let mut led_pin = pins.gpio11.into_push_pull_output();
 
-    let i2c0_pins = (
-        // UART TX (characters sent from RP2040) on pin 1 (GPIO0)
-        pins.gpio0.into_mode::<gpio::FunctionI2C>(),
-        // UART RX (characters received by RP2040) on pin 2 (GPIO1)
-        pins.gpio1.into_mode::<gpio::FunctionI2C>(),
-    );
-
-    let i2c0 = i2c::I2C::i2c0(
-        pac.I2C0,
-        i2c0_pins.0,
-        i2c0_pins.1,
-        100000_u32.Hz(),
-        &mut pac.RESETS,
-        clocks.system_clock.freq(),
-    );
-
-    let mut fusb302b = Fusb302b::new(i2c0);
-    //let mut pd = { Sink::new(Fusb302b::new(i2c0), &callback) };
-
-    //pd.init();
-
     loop {
         info!("on!");
         led_pin.set_high().unwrap();
@@ -96,49 +81,7 @@ fn main() -> ! {
         info!("off!");
         led_pin.set_low().unwrap();
         delay.delay_ms(500);
-
-        fusb302b::registers::Control0
     }
 }
 
-fn callback(event: Event) -> Option<Response> {
-    match event {
-        Event::SourceCapabilitiesChanged(caps) => {
-            info!("Capabilities changed: {}", caps.len());
-
-            // Take maximum voltage
-            let (index, supply) = caps
-                .iter()
-                .enumerate()
-                .filter_map(|(i, cap)| {
-                    if let PowerDataObject::FixedSupply(supply) = cap {
-                        debug!(
-                            "supply @ {}: {}mV {}mA",
-                            i,
-                            supply.voltage() * 50,
-                            supply.max_current() * 10
-                        );
-                        Some((i, supply))
-                    } else {
-                        None
-                    }
-                })
-                .max_by(|(_, x), (_, y)| x.voltage().cmp(&y.voltage()))
-                .unwrap();
-
-            info!("requesting supply {:?}@{}", supply, index);
-
-            return Some(Response::RequestPower {
-                index,
-                current: supply.max_current() * 10,
-            });
-        }
-        Event::PowerReady => info!("power ready"),
-        Event::ProtocolChanged => info!("protocol changed"),
-        Event::PowerAccepted => info!("power accepted"),
-        Event::PowerRejected => info!("power rejected"),
-    }
-
-    None
-}
 // End of file

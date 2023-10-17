@@ -15,7 +15,7 @@ mod app {
 
     use embedded_hal::digital::v2::OutputPin;
     use fugit::{ExtU64, Instant};
-    use rp2040_hal::{
+    use rp_pico::hal::{
         self,
         clocks::init_clocks_and_plls,
         gpio, i2c,
@@ -105,28 +105,28 @@ mod app {
             &mut resets,
         );
 
-        let i2c0_pins = (
-            // UART TX (characters sent from RP2040) on pin 1 (GPIO0)
-            pins.gpio0.into_function::<gpio::FunctionI2C>(),
-            // UART RX (characters received by RP2040) on pin 2 (GPIO1)
-            pins.gpio1.into_function::<gpio::FunctionI2C>(),
-        );
+        // let i2c0_pins = (
+        //     // UART TX (characters sent from RP2040) on pin 1 (GPIO0)
+        //     pins.gpio0.into_function::<gpio::FunctionI2C>(),
+        //     // UART RX (characters received by RP2040) on pin 2 (GPIO1)
+        //     pins.gpio1.into_function::<gpio::FunctionI2C>(),
+        // );
 
-        let i2c0 = i2c::I2C::i2c0(
-            c.device.I2C0,
-            i2c0_pins.0,
-            i2c0_pins.1,
-            fugit::RateExtU32::Hz(100000_u32),
-            &mut resets,
-            rp2040_hal::Clock::freq(&clocks.system_clock),
-        );
+        // let i2c0 = i2c::I2C::i2c0(
+        //     c.device.I2C0,
+        //     i2c0_pins.0,
+        //     i2c0_pins.1,
+        //     fugit::RateExtU32::Hz(100000_u32),
+        //     &mut resets,
+        //     rp2040_hal::Clock::freq(&clocks.system_clock),
+        // );
 
-        let mut pd = usb_pd::sink::Sink::new(fusb302b::Fusb302b::new(i2c0), &crate::callback);
+        // let mut pd = usb_pd::sink::Sink::new(fusb302b::Fusb302b::new(i2c0), &crate::callback);
 
-        pd.init();
+        // pd.init();
 
         let mut led = pins.gpio11.into_push_pull_output();
-        led.set_low().unwrap();
+        led.set_high().unwrap();
 
         let mut timer = rp2040_hal::Timer::new(c.device.TIMER, &mut resets, &clocks);
         let alarm = timer.alarm_0().unwrap();

@@ -17,14 +17,18 @@ defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }
 
 # We're using a Pico by default on this template
-# rp-pico = { version = "0.8.0", features = ["rt", "rtic-monotonic"] }
+rp-pico = { version = "0.8.0", features = ["rt"] }
 
 # but you can use any BSP. Uncomment this to use the pro_micro_rp2040 BSP instead
 # sparkfun-pro-micro-rp2040 = "0.6"
 
 # If you're not going to use a Board Support Package you'll need these:
 rp2040-hal = { version="0.9.0", features=["rt", "critical-section-impl", "rtic-monotonic"] }
-# rp2040-boot2 = "0.2"
+#rp2040-boot2 = "0.3"
+
+[[bin]]
+name = "old"
+path = "src/old.rs"
 
 # cargo build/run
 [profile.dev]
