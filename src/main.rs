@@ -100,6 +100,7 @@ mod app {
     // };
     use fugit::{ExtU64, Instant};
     use fusb302b::Fusb302b;
+    use rp2040_hal::Timer;
     use rp_pico::hal::{
         self,
         clocks::init_clocks_and_plls,
@@ -120,35 +121,8 @@ mod app {
             gpio::Pin<gpio::bank0::Gpio13, gpio::FunctionSio<gpio::SioOutput>, gpio::PullDown>,
             gpio::Pin<gpio::bank0::Gpio14, gpio::FunctionSio<gpio::SioOutput>, gpio::PullDown>,
         ),
-        // i2c0: rp2040_hal::I2C<
-        //     I2C0,
-        //     (
-        //         rp2040_hal::gpio::Pin<gpio::bank0::Gpio0, gpio::FunctionI2c, gpio::PullDown>,
-        //         rp2040_hal::gpio::Pin<gpio::bank0::Gpio1, gpio::FunctionI2c, gpio::PullDown>,
-        //     ),
-        // >,
         i2c0: I2C0Proxy,
         //fusb302: FUSB302BDev,
-        pdev: PDDev,
-        // pd: usb_pd::sink::Sink<
-        //     fusb302b::Fusb302b<
-        //         rp2040_hal::I2C<
-        //             I2C0,
-        //             (
-        //                 rp2040_hal::gpio::Pin<
-        //                     gpio::bank0::Gpio0,
-        //                     gpio::FunctionI2c,
-        //                     gpio::PullDown,
-        //                 >,
-        //                 rp2040_hal::gpio::Pin<
-        //                     gpio::bank0::Gpio1,
-        //                     gpio::FunctionI2c,
-        //                     gpio::PullDown,
-        //                 >,
-        //             ),
-        //         >,
-        //     >,
-        // >,
     }
 
     #[monotonic(binds = TIMER_IRQ_0, default = true)]
@@ -156,25 +130,7 @@ mod app {
 
     #[local]
     struct Local {
-        // pd: usb_pd::sink::Sink<
-        //     fusb302b::Fusb302b<
-        //         rp2040_hal::I2C<
-        //             I2C0,
-        //             (
-        //                 rp2040_hal::gpio::Pin<
-        //                     gpio::bank0::Gpio0,
-        //                     gpio::FunctionI2c,
-        //                     gpio::PullDown,
-        //                 >,
-        //                 rp2040_hal::gpio::Pin<
-        //                     gpio::bank0::Gpio1,
-        //                     gpio::FunctionI2c,
-        //                     gpio::PullDown,
-        //                 >,
-        //             ),
-        //         >,
-        //     >,
-        // >,
+        pdev: PDDev,
     }
 
     #[init]
@@ -235,6 +191,8 @@ mod app {
 
         pd.init();
 
+        info!("INIT!");
+
         let mut leds = (
             pins.gpio11.into_push_pull_output(),
             pins.gpio12.into_push_pull_output(),
@@ -248,25 +206,31 @@ mod app {
 
         let mut timer = rp2040_hal::Timer::new(c.device.TIMER, &mut resets, &clocks);
         let alarm = timer.alarm_0().unwrap();
-        i2c0_task::spawn_after(1.millis()).unwrap();
+        pd_task::spawn_after(1.millis()).unwrap();
         blink_led::spawn_after(500.millis()).unwrap();
 
         let i2c0 = i2c_bus0.acquire_i2c();
 
+        info!("INIT COMPLETE!");
+
         (
-            Shared {
-                leds,
-                i2c0,
-                pdev: pd,
-            },
-            Local {},
+            Shared { leds, i2c0 },
+            Local { pdev: pd },
             init::Monotonics(Monotonic::new(timer, alarm)),
         )
     }
 
-    #[task(shared = [i2c0, pdev])]
-    fn i2c0_task(mut c: i2c0_task::Context) {
-        info!("i2c0");
+    #[task(local = [pdev])]
+    fn pd_task(c: pd_task::Context) {
+        //info!("IDLE!");
+        //loop {
+        let now = monotonics::MyMono::now();
+        let now: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks() / 10000);
+
+        c.local.pdev.poll(now);
+        pd_task::spawn_after(1.micros()).unwrap();
+        //}
+        //info!("i2c0");
 
         // c.shared.i2c0.lock(|i2c0| {
         //     for i in 0..=127 {
@@ -290,15 +254,8 @@ mod app {
         //     }
         //     info!("Scan Done")
         // });
-        c.shared.pdev.lock(|f| {
-            let now = monotonics::MyMono::now();
-            let now: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks());
-
-            f.poll(now);
-        });
-
-        i2c0_task::spawn_after(1.millis()).unwrap();
     }
+
     #[task(
         shared = [leds],
         local = [tog: bool = false, which: u8 = 0],
@@ -331,11 +288,12 @@ mod app {
         //let now = monotonics::MyMono::now();
         //let foo: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks());
         //c.shared.pd.lock(|pd| pd.poll(foo));
-        blink_led::spawn_after(500.millis()).unwrap();
+        blink_led::spawn_after(10000.millis()).unwrap();
     }
 }
 
 fn callback(event: Event) -> Option<Response> {
+    info!("CALLBACK");
     match event {
         Event::SourceCapabilitiesChanged(caps) => {
             info!("Capabilities changed: {}", caps.len());
