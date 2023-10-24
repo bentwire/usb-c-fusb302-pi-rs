@@ -1,6 +1,8 @@
 #![no_std]
 #![no_main]
 
+//mod display;
+
 use defmt::*;
 use defmt_rtt as _;
 
@@ -93,24 +95,28 @@ mod app {
     >;
 
     use defmt::info;
+
     use embedded_hal::digital::v2::OutputPin;
     // use embedded_hal::prelude::{
     //     _embedded_hal_blocking_delay_DelayMs, _embedded_hal_blocking_i2c_Read,
     //     _embedded_hal_blocking_i2c_Write, _embedded_hal_blocking_i2c_WriteRead,
     // };
-    use fugit::{ExtU64, Instant};
+    use fugit::{ExtU64, Instant, RateExtU32};
     use fusb302b::Fusb302b;
-    use rp2040_hal::Timer;
+
     use rp_pico::hal::{
         self,
-        clocks::init_clocks_and_plls,
+        clocks::{init_clocks_and_plls, Clock},
         gpio, i2c,
         pac::I2C0,
-        sio,
+        sio, spi,
         timer::{monotonic::Monotonic, Alarm0},
         watchdog::Watchdog,
         Sio,
     };
+
+    //use crate::display;
+
     // use usb_pd::sink::{Driver, DriverState};
 
     #[shared]
@@ -169,6 +175,19 @@ mod app {
             pins.gpio1.into_function::<gpio::FunctionI2C>(),
         );
 
+        let spi0_pins = (
+            // SPI0 TX
+            pins.gpio7.into_function::<gpio::FunctionSpi>(),
+            // SPI0 RX
+            pins.gpio4.into_function::<gpio::FunctionSpi>(),
+            // SPI0 CLK
+            pins.gpio6.into_function::<gpio::FunctionSpi>(),
+        );
+
+        let _dis_cs = pins.gpio5.into_push_pull_output();
+        let _dis_dc = pins.gpio9.into_push_pull_output();
+        let _dis_rst = pins.gpio10.into_push_pull_output();
+
         let i2c0 = i2c::I2C::i2c0(
             c.device.I2C0,
             i2c0_pins.0,
@@ -177,6 +196,15 @@ mod app {
             &mut resets,
             rp2040_hal::Clock::freq(&clocks.system_clock),
         );
+
+        // let i2c1 = i2c::I2C::i2c1(
+        //     c.device.I2C1,
+        //     i2c1_pins.0,
+        //     i2c1_pins.1,
+        //     fugit::RateExtU32::Hz(100000_u32),
+        //     &mut resets,
+        //     rp2040_hal::Clock::freq(&clocks.system_clock),
+        // );
 
         let i2c_bus0: &'static _ = shared_bus::new_cortexm!(I2C0Dev = i2c0).unwrap();
 
@@ -206,10 +234,20 @@ mod app {
 
         let mut timer = rp2040_hal::Timer::new(c.device.TIMER, &mut resets, &clocks);
         let alarm = timer.alarm_0().unwrap();
-        pd_task::spawn_after(1.millis()).unwrap();
-        blink_led::spawn_after(500.millis()).unwrap();
+        pd_task::spawn_after(ExtU64::millis(500)).unwrap();
+        blink_led::spawn_after(ExtU64::millis(1000)).unwrap();
 
         let i2c0 = i2c_bus0.acquire_i2c();
+
+        let spi0 = spi::Spi::<_, _, _, 8>::new(c.device.SPI0, spi0_pins);
+        let _spi0 = spi0.init(
+            &mut resets,
+            clocks.system_clock.freq(),
+            10_u32.MHz(),
+            embedded_hal::spi::MODE_0,
+        );
+
+        let _delay = cortex_m::delay::Delay::new(c.core.SYST, clocks.system_clock.freq().to_Hz());
 
         info!("INIT COMPLETE!");
 
@@ -225,43 +263,20 @@ mod app {
         //info!("IDLE!");
         //loop {
         let now = monotonics::MyMono::now();
-        let now: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks() / 10000);
+        let now: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks() / 1000);
 
         c.local.pdev.poll(now);
-        pd_task::spawn_after(1.micros()).unwrap();
-        //}
-        //info!("i2c0");
 
-        // c.shared.i2c0.lock(|i2c0| {
-        //     for i in 0..=127 {
-        //         let mut readbuf: [u8; 1] = [0; 1];
-        //         let result = i2c0.read(i, &mut readbuf);
-        //         if let Ok(_d) = result {
-        //             let mut readbuf: [u8; 0x43] = [0; 0x43];
-        //             // Do whatever work you want to do with found devices
-        //             info!("Device found at address {:?}", i);
-        //             i2c0.write(i, &[0x0c, 0x01]).unwrap();
-        //             i2c0.write(i, &[0x0b, 0x0f]).unwrap();
-        //             i2c0.write(i, &[0x06, 0x00]).unwrap();
-        //             i2c0.write(i, &[0x09, 0x07]).unwrap();
-
-        //             i2c0.write_read(i, &[0x01], &mut readbuf).unwrap();
-        //             info!("VER? {:x}", readbuf[0]);
-        //             info!("SW0: {:x}", readbuf[1]);
-        //             info!("SW1: {:x}", readbuf[2]);
-        //             info!("MEA: {:x}", readbuf[3])
-        //         }
-        //     }
-        //     info!("Scan Done")
-        // });
+        //pd_task::spawn().unwrap();
+        pd_task::spawn_after(50_u64.micros()).unwrap();
     }
 
     #[task(
-        shared = [leds],
+        shared = [leds, i2c0],
         local = [tog: bool = false, which: u8 = 0],
     )]
     fn blink_led(mut c: blink_led::Context) {
-        info!("BLINK {:?}", *c.local.which);
+        //info!("BLINK {:?}", *c.local.which);
         if *c.local.tog {
             c.shared.leds.lock(|l| match *c.local.which {
                 0 => l.0.set_high().unwrap(),
@@ -288,7 +303,7 @@ mod app {
         //let now = monotonics::MyMono::now();
         //let foo: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks());
         //c.shared.pd.lock(|pd| pd.poll(foo));
-        blink_led::spawn_after(10000.millis()).unwrap();
+        blink_led::spawn_after(1000_u64.millis()).unwrap();
     }
 }
 

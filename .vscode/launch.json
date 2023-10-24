@@ -24,7 +24,7 @@
             "coreConfigs": [
                 {
                     "coreIndex": 0,
-                    "programBinary": "target/thumbv6m-none-eabi/debug/rp2040-project-template",
+                    "programBinary": "target/thumbv6m-none-eabi/debug/usb-c-fusb302-pi",
                     "chip": "RP2040",
                     // Uncomment this if you've downloaded the SVD from
                     // https://github.com/raspberrypi/pico-sdk/raw/1.3.1/src/rp2040/hardware_regs/rp2040.svd
@@ -33,7 +33,8 @@
                     "rttEnabled": true,
                     "options": {
                         "env": {
-                            "DEFMT_LOG": "debug"
+                            "DEFMT_LOG": "debug",
+                            "RUST_LOG": "debug"
                         }
                     },
                 }
@@ -43,3 +44,29 @@
         }
     ]
 }
+// {
+//     "version": "0.2.0",
+//     "configurations": [
+//         {
+//             "type": "probe-rs-debug",
+//             "request": "attach",
+//             "name": "probe_rs Executable launch example",
+//             "cwd": "${workspaceFolder}",
+// //            "speed": 24000, //!MODIFY (or remove)
+//             "chip": "rp2040", //!MODIFY
+// //            "probe": "VID:PID:<Serial>", //!MODIFY (or remove)
+//             "coreConfigs": [
+//                 {
+//                     "coreIndex": 0,
+//                     "programBinary": "Relative or fully qualified path to your programBinary", //!MODIFY
+//                     "svdFile": "Relative or fully qualified path to your programBinary" //!MODIFY
+//                 }
+//             ],
+//             "env": {
+//                 //!MODIFY (or remove)
+//                 "RUST_LOG": "info" // If you set this variable, check the VSCode console log window for the location of the log file.
+//             },
+//             "consoleLogLevel": "Console" //Info, Debug
+//         }
+//     ]
+// }

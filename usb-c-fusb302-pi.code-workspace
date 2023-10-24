@@ -1,0 +1,13 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../usb-pd-rs"
+		}
+	],
+	"settings": {
+		"rust-analyzer.cargo.target": "thumbv6m-none-eabi"
+	}
+}
