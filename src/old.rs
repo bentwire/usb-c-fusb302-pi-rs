@@ -9,7 +9,6 @@ use defmt::*;
 use defmt_rtt as _;
 use embedded_hal::digital::v2::OutputPin;
 
-
 use panic_probe as _;
 
 // Provide an alias for our BSP so we can switch targets quickly.
@@ -23,7 +22,6 @@ use bsp::hal::{
     sio::Sio,
     watchdog::Watchdog,
 };
-
 
 /// The linker will place this boot block at the start of our program image. We
 /// need this to help the ROM bootloader get our code up and running.
