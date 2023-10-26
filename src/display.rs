@@ -1,8 +1,9 @@
 use embedded_graphics::pixelcolor::Rgb565;
 
 use core::fmt::Debug;
-use embedded_graphics_core::draw_target::DrawTarget;
-use embedded_graphics_core::geometry::Dimensions;
+use embedded_graphics::prelude::*;
+//use embedded_graphics_core::draw_target::DrawTarget;
+//use embedded_graphics_core::geometry::Dimensions;
 
 use rp_pico::hal::{self, gpio, pac::SPI0, spi};
 
