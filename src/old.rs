@@ -8,8 +8,8 @@ use bsp::entry;
 use defmt::*;
 use defmt_rtt as _;
 use embedded_hal::digital::v2::OutputPin;
-use fugit::RateExtU32;
-use fusb302b::Fusb302b;
+
+
 use panic_probe as _;
 
 // Provide an alias for our BSP so we can switch targets quickly.
@@ -19,16 +19,11 @@ use rp_pico as bsp;
 
 use bsp::hal::{
     clocks::{init_clocks_and_plls, Clock},
-    gpio, i2c, pac,
+    gpio, pac,
     sio::Sio,
-    timer::Alarm0,
     watchdog::Watchdog,
 };
-use usb_pd::{
-    callback::{Event, Response},
-    pdo::PowerDataObject,
-    sink::Sink,
-};
+
 
 /// The linker will place this boot block at the start of our program image. We
 /// need this to help the ROM bootloader get our code up and running.
