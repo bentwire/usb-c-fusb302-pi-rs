@@ -2,16 +2,9 @@
 #![no_main]
 
 //mod display;
-
-use defmt::*;
 use defmt_rtt as _;
 
 use panic_probe as _;
-use usb_pd::{
-    callback::{Event, Response},
-    pdo::PowerDataObject,
-};
-
 #[rtic::app(device = rp2040_hal::pac, peripherals = true, dispatchers = [I2C0_IRQ])]
 mod app {
     type I2C0Dev = hal::I2C<
@@ -94,9 +87,13 @@ mod app {
         >,
     >;
 
-    use defmt::info;
+    use defmt::{debug, info};
+    use usb_pd::{
+        pdo::PowerDataObject,
+        sink::{Event, Request, Sink},
+    };
 
-    use embedded_hal::digital::v2::OutputPin;
+    use embedded_hal::digital::v2::{OutputPin, ToggleableOutputPin};
     // use embedded_hal::prelude::{
     //     _embedded_hal_blocking_delay_DelayMs, _embedded_hal_blocking_i2c_Read,
     //     _embedded_hal_blocking_i2c_Write, _embedded_hal_blocking_i2c_WriteRead,
@@ -212,10 +209,7 @@ mod app {
 
         //fusb302.init();
 
-        let mut pd = usb_pd::sink::Sink::new(
-            fusb302b::Fusb302b::new(i2c_bus0.acquire_i2c()),
-            &crate::callback,
-        );
+        let mut pd = Sink::new(fusb302b::Fusb302b::new(i2c_bus0.acquire_i2c()));
 
         pd.init();
 
@@ -227,15 +221,15 @@ mod app {
             pins.gpio13.into_push_pull_output(),
             pins.gpio14.into_push_pull_output(),
         );
-        leds.0.set_high().unwrap();
-        leds.1.set_high().unwrap();
-        leds.2.set_high().unwrap();
+        leds.0.set_low().unwrap();
+        leds.1.set_low().unwrap();
+        leds.2.set_low().unwrap();
         leds.3.set_low().unwrap();
 
         let mut timer = rp2040_hal::Timer::new(c.device.TIMER, &mut resets, &clocks);
         let alarm = timer.alarm_0().unwrap();
-        pd_task::spawn_after(ExtU64::millis(500)).unwrap();
-        blink_led::spawn_after(ExtU64::millis(1000)).unwrap();
+        pd_task::spawn_after(ExtU64::millis(1)).unwrap();
+        //blink_led::spawn_after(ExtU64::millis(1000)).unwrap();
 
         let i2c0 = i2c_bus0.acquire_i2c();
 
@@ -258,14 +252,75 @@ mod app {
         )
     }
 
-    #[task(local = [pdev])]
-    fn pd_task(c: pd_task::Context) {
+    #[task(local = [pdev], shared = [leds])]
+    fn pd_task(mut c: pd_task::Context) {
         //info!("IDLE!");
         //loop {
         let now = monotonics::MyMono::now();
         let now: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks() / 1000);
 
-        c.local.pdev.poll(now);
+        let evnt = c.local.pdev.poll(now);
+        if let Some(evnt) = evnt {
+            match evnt {
+                Event::SourceCapabilitiesChanged(caps) => {
+                    info!("CAPS CHANGED!");
+                    c.shared.leds.lock(|leds| {
+                        leds.0.toggle().unwrap();
+                    });
+
+                    let (index, supply) = caps
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, cap)| {
+                            if let PowerDataObject::FixedSupply(supply) = cap {
+                                debug!(
+                                    "supply @ {}: {}mV {}mA",
+                                    i,
+                                    supply.voltage() * 50,
+                                    supply.max_current() * 10
+                                );
+                                Some((i, supply))
+                            } else {
+                                None
+                            }
+                        })
+                        .max_by(|(_, x), (_, y)| x.voltage().cmp(&y.voltage()))
+                        .unwrap();
+
+                    info!("requesting supply {:?}@{}", supply, index);
+
+                    c.local.pdev.request(Request::RequestPower {
+                        index,
+                        current: supply.max_current() * 10,
+                    });
+                }
+                Event::PowerReady => {
+                    info!("power ready");
+                    c.shared.leds.lock(|leds| {
+                        leds.1.set_high().unwrap();
+                    });
+                }
+                Event::ProtocolChanged => {
+                    info!("protocol changed");
+                    c.shared.leds.lock(|leds| {
+                        leds.2.toggle().unwrap();
+                    });
+                }
+                Event::PowerAccepted => {
+                    info!("power accepted");
+                    c.shared.leds.lock(|leds| {
+                        leds.3.set_high().unwrap();
+                    });
+                }
+                Event::PowerRejected => {
+                    info!("power rejected");
+                    c.shared.leds.lock(|leds| {
+                        leds.3.set_low().unwrap();
+                        leds.1.set_low().unwrap();
+                    });
+                }
+            }
+        }
 
         //pd_task::spawn().unwrap();
         pd_task::spawn_after(50_u64.micros()).unwrap();
@@ -307,44 +362,44 @@ mod app {
     }
 }
 
-fn callback(event: Event) -> Option<Response> {
-    info!("CALLBACK");
-    match event {
-        Event::SourceCapabilitiesChanged(caps) => {
-            info!("Capabilities changed: {}", caps.len());
+// fn callback(event: Event) -> Option<Response> {
+//     info!("CALLBACK");
+//     match event {
+//         Event::SourceCapabilitiesChanged(caps) => {
+//             info!("Capabilities changed: {}", caps.len());
 
-            // Take maximum voltage
-            let (index, supply) = caps
-                .iter()
-                .enumerate()
-                .filter_map(|(i, cap)| {
-                    if let PowerDataObject::FixedSupply(supply) = cap {
-                        debug!(
-                            "supply @ {}: {}mV {}mA",
-                            i,
-                            supply.voltage() * 50,
-                            supply.max_current() * 10
-                        );
-                        Some((i, supply))
-                    } else {
-                        None
-                    }
-                })
-                .max_by(|(_, x), (_, y)| x.voltage().cmp(&y.voltage()))
-                .unwrap();
+//             // Take maximum voltage
+//             let (index, supply) = caps
+//                 .iter()
+//                 .enumerate()
+//                 .filter_map(|(i, cap)| {
+//                     if let PowerDataObject::FixedSupply(supply) = cap {
+//                         debug!(
+//                             "supply @ {}: {}mV {}mA",
+//                             i,
+//                             supply.voltage() * 50,
+//                             supply.max_current() * 10
+//                         );
+//                         Some((i, supply))
+//                     } else {
+//                         None
+//                     }
+//                 })
+//                 .max_by(|(_, x), (_, y)| x.voltage().cmp(&y.voltage()))
+//                 .unwrap();
 
-            info!("requesting supply {:?}@{}", supply, index);
+//             info!("requesting supply {:?}@{}", supply, index);
 
-            return Some(Response::RequestPower {
-                index,
-                current: supply.max_current() * 10,
-            });
-        }
-        Event::PowerReady => info!("power ready"),
-        Event::ProtocolChanged => info!("protocol changed"),
-        Event::PowerAccepted => info!("power accepted"),
-        Event::PowerRejected => info!("power rejected"),
-    }
+//             return Some(Response::RequestPower {
+//                 index,
+//                 current: supply.max_current() * 10,
+//             });
+//         }
+//         Event::PowerReady => info!("power ready"),
+//         Event::ProtocolChanged => info!("protocol changed"),
+//         Event::PowerAccepted => info!("power accepted"),
+//         Event::PowerRejected => info!("power rejected"),
+//     }
 
-    None
-}
+//     None
+// }

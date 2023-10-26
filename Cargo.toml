@@ -16,8 +16,8 @@ fugit = "0.3.7"
 #ssd1351 = { git = "https://github.com/ftmazzone/ssd1351-rust.git", feature = ["no-std"] }
 ssd1351 = { version = "0.4.2", features = ["graphics"]}
 embedded-graphics = "0.8.1"
-usb-pd = { git = "https://github.com/bentwire/usb-pd-rs.git", branch="add-vdm-softreset" }
-fusb302b = { git = "https://github.com/bentwire/usb-pd-rs.git", branch="add-vdm-softreset" }
+usb-pd = { git = "https://github.com/fmckeogh/usb-pd-rs.git", branch="main" }
+fusb302b = { git = "https://github.com/fmckeogh/usb-pd-rs.git", branch="main" }
 #usb-pd = { path = "../usb-pd-rs/usb-pd" }
 #fusb302b = { path = "../usb-pd-rs/fusb302b" }
 defmt = "0.3"
