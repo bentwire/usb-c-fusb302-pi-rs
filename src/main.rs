@@ -6,89 +6,12 @@ mod types;
 use defmt_rtt as _;
 
 use panic_probe as _;
-#[rtic::app(device = rp2040_hal::pac, peripherals = true, dispatchers = [I2C0_IRQ])]
+#[rtic::app(device = rp2040_hal::pac, peripherals = true, dispatchers = [I2C0_IRQ, SPI0_IRQ])]
 mod app {
-    type I2C0Dev = hal::I2C<
-        I2C0,
-        (
-            gpio::Pin<gpio::bank0::Gpio0, gpio::FunctionI2c, gpio::PullDown>,
-            gpio::Pin<gpio::bank0::Gpio1, gpio::FunctionI2c, gpio::PullDown>,
-        ),
-    >;
-    type I2C0Proxy = shared_bus::I2cProxy<
-        'static,
-        shared_bus::cortex_m::interrupt::Mutex<
-            core::cell::RefCell<
-                rp2040_hal::I2C<
-                    I2C0,
-                    (
-                        rp2040_hal::gpio::Pin<
-                            gpio::bank0::Gpio0,
-                            gpio::FunctionI2c,
-                            gpio::PullDown,
-                        >,
-                        rp2040_hal::gpio::Pin<
-                            gpio::bank0::Gpio1,
-                            gpio::FunctionI2c,
-                            gpio::PullDown,
-                        >,
-                    ),
-                >,
-            >,
-        >,
-    >;
 
-    #[allow(dead_code)]
-    type FUSB302BDev = Fusb302b<
-        shared_bus::I2cProxy<
-            'static,
-            cortex_m::interrupt::Mutex<
-                core::cell::RefCell<
-                    hal::I2C<
-                        I2C0,
-                        (
-                            gpio::Pin<gpio::bank0::Gpio0, gpio::FunctionI2c, gpio::PullDown>,
-                            gpio::Pin<gpio::bank0::Gpio1, gpio::FunctionI2c, gpio::PullDown>,
-                        ),
-                    >,
-                >,
-            >,
-        >,
-    >;
+    //use cortex_m::delay;
+    use crate::types::{I2C0Dev, I2C0Proxy, PDDev};
 
-    type PDDev = usb_pd::sink::Sink<
-        Fusb302b<
-            shared_bus::I2cProxy<
-                'static,
-                cortex_m::interrupt::Mutex<
-                    core::cell::RefCell<
-                        hal::I2C<
-                            I2C0,
-                            (
-                                gpio::Pin<gpio::bank0::Gpio0, gpio::FunctionI2c, gpio::PullDown>,
-                                gpio::Pin<gpio::bank0::Gpio1, gpio::FunctionI2c, gpio::PullDown>,
-                            ),
-                        >,
-                    >,
-                >,
-            >,
-        >,
-    >;
-
-    #[allow(dead_code)]
-    type I2C0Bus = shared_bus::BusManager<
-        shared_bus::NullMutex<
-            hal::I2C<
-                I2C0,
-                (
-                    gpio::Pin<gpio::bank0::Gpio0, gpio::FunctionI2c, gpio::PullDown>,
-                    gpio::Pin<gpio::bank0::Gpio1, gpio::FunctionI2c, gpio::PullDown>,
-                ),
-            >,
-        >,
-    >;
-
-    use cortex_m::delay;
     use defmt::{debug, info};
     use embedded_graphics_core::prelude::Point;
     use usb_pd::{
@@ -100,7 +23,7 @@ mod app {
         mono_font::{ascii::FONT_6X10, MonoTextStyle},
         pixelcolor::Rgb565,
         prelude::*,
-        primitives::{Circle, PrimitiveStyle},
+        //primitives::{Circle, PrimitiveStyle},
         text::{Alignment, Text},
     };
     use embedded_hal::digital::v2::{OutputPin, ToggleableOutputPin};
@@ -108,22 +31,20 @@ mod app {
     //     _embedded_hal_blocking_delay_DelayMs, _embedded_hal_blocking_i2c_Read,
     //     _embedded_hal_blocking_i2c_Write, _embedded_hal_blocking_i2c_WriteRead,
     // };
-    use fugit::{ExtU64, Instant, RateExtU32, RateExtU64};
-    use fusb302b::Fusb302b;
+    use fugit::{ExtU32, ExtU64, Instant, RateExtU32};
+    use xpt2046::{self, Xpt2046, Xpt2046Exti};
 
     use rp_pico::hal::{
-        self,
         clocks::{init_clocks_and_plls, Clock},
-        gpio, i2c,
-        pac::I2C0,
-        sio, spi,
-        timer::{monotonic::Monotonic, Alarm0},
+        gpio, i2c, sio, spi,
+        timer::monotonic::Monotonic,
         watchdog::Watchdog,
         Sio,
     };
 
     use display_interface_spi::SPIInterface;
     use mipidsi::{options::*, Builder};
+    use rp2040_hal::timer::{Alarm, Alarm0};
     use u8g2_fonts::{
         fonts,
         types::{FontColor, HorizontalAlignment, VerticalPosition},
@@ -227,10 +148,6 @@ mod app {
 
         let i2c_bus0: &'static _ = shared_bus::new_cortexm!(I2C0Dev = i2c0).unwrap();
 
-        //let mut fusb302 = fusb302b::Fusb302b::new(i2c_bus0.acquire_i2c());
-
-        //fusb302.init();
-
         let mut pd = Sink::new(fusb302b::Fusb302b::new(i2c_bus0.acquire_i2c()));
 
         info!("INIT!");
@@ -248,8 +165,8 @@ mod app {
 
         let mut timer = rp2040_hal::Timer::new(c.device.TIMER, &mut resets, &clocks);
         let alarm = timer.alarm_0().unwrap();
-        pd_task::spawn_after(ExtU64::millis(1)).unwrap();
-        //blink_led::spawn_after(ExtU64::millis(1000)).unwrap();
+        //let _ = rp2040_hal::timer::Alarm::schedule(&mut alarm, 100_u32.micros()).unwrap();
+        //alarm.enable_interrupt();
 
         let i2c0 = i2c_bus0.acquire_i2c();
 
@@ -257,12 +174,17 @@ mod app {
         let spi0 = spi0.init(
             &mut resets,
             clocks.system_clock.freq(),
-            10u32.MHz(),
+            20u32.MHz(),
             embedded_hal::spi::MODE_0,
         );
 
+        //let spi_bus0 = shared_bus::BusManagerSimple::new(spi0);
+
+        //let spi0 = spi_bus0.acquire_spi();
+
         let mut delay =
             cortex_m::delay::Delay::new(c.core.SYST, clocks.system_clock.freq().to_Hz());
+
         let di = SPIInterface::new(spi0, dis_dc, dis_cs);
         let mut display = Builder::ili9341_rgb565(di)
             .with_display_size(240, 320)
@@ -318,10 +240,12 @@ mod app {
 
         pd.init();
 
-        update_display::spawn_after(ExtU64::millis(100)).unwrap();
-        info!("INIT COMPLETE!");
-
         let pdos = heapless::Vec::<PowerDataObject, 8>::new();
+
+        info!("INIT COMPLETE!");
+        pd_task::spawn_after(ExtU64::millis(1)).unwrap();
+        //blink_led::spawn_after(ExtU64::millis(1000)).unwrap();
+        update_display::spawn_after(ExtU64::millis(100)).unwrap();
 
         (
             Shared {
@@ -331,8 +255,17 @@ mod app {
                 display,
             },
             Local { pdev: pd },
-            init::Monotonics(Monotonic::new(timer, alarm)),
+            //init::Monotonics(Monotonic::new(timer, alarm)),
+            init::Monotonics(MyMono::new(timer, alarm)),
         )
+    }
+
+    #[idle]
+    fn idle(_: idle::Context) -> ! {
+        loop {
+            debug!("IDLE");
+            cortex_m::asm::wfi();
+        }
     }
 
     #[task(local = [pdev], shared = [leds, pdos])]
@@ -418,9 +351,17 @@ mod app {
         pd_task::spawn_after(50_u64.micros()).unwrap();
     }
 
-    #[task(shared = [display, pdos])]
+    #[task(shared = [display, pdos], local = [count: u8 = 0])]
     fn update_display(mut c: update_display::Context) {
         let font = FontRenderer::new::<fonts::u8g2_font_crox2h_tf>();
+        let text_color = Rgb565::WHITE;
+        let background_color = Rgb565::BLACK;
+
+        let font_color = FontColor::Transparent(text_color);
+        // let font_color = FontColor::WithBackground {
+        //     fg: text_color,
+        //     bg: background_color,
+        // };
 
         c.shared.pdos.lock(|pdos| {
             for pdo in pdos.iter().enumerate() {
@@ -430,18 +371,19 @@ mod app {
                         c.shared.display.lock(|dis| {
                             font.render_aligned(
                                 format_args!(
-                                    "{}mV {}mA",
+                                    "{}mV {}mA      {:x}",
                                     supply.voltage() * 50,
-                                    supply.max_current() * 10
+                                    supply.max_current() * 10,
+                                    *c.local.count
                                 ),
                                 Point::new(
                                     0,
-                                    200 + (i * (font.get_ascent() - font.get_descent()) as usize)
+                                    30 + (i * (font.get_ascent() - font.get_descent()) as usize)
                                         as i32,
                                 ),
                                 VerticalPosition::Baseline,
                                 HorizontalAlignment::Left,
-                                FontColor::Transparent(Rgb565::CSS_MISTY_ROSE),
+                                font_color,
                                 dis,
                             )
                             .unwrap();
@@ -451,8 +393,10 @@ mod app {
                 }
             }
         });
-        update_display::spawn_after(1000_u64.millis()).unwrap(); // 1 second
+        *c.local.count += 1;
+        update_display::spawn_after(500_u64.millis()).unwrap(); // 1 second
     }
+
     #[task(
         shared = [leds, i2c0],
         local = [tog: bool = false, which: u8 = 0],
@@ -487,6 +431,17 @@ mod app {
         //c.shared.pd.lock(|pd| pd.poll(foo));
         blink_led::spawn_after(1000_u64.millis()).unwrap();
     }
+
+    // #[task(binds = TIMER_IRQ_0, shared = [display])]
+    // fn timer_irq(c: timer_irq::Context) {
+    //     c.shared.display.lock(|dis| {
+    //         dis.update().unwrap();
+    //     });
+    //     let _ = rp2040_hal::timer::Alarm::schedule(
+    //         &mut c.shared.display.lock(|dis| dis.get_mut().alarm),
+    //         100_u32.millis(),
+    //     );
+    // }
 }
 
 // fn callback(event: Event) -> Option<Response> {

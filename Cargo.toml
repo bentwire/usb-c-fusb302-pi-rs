@@ -32,6 +32,8 @@ embedded-graphics-core = "0.4.0"
 rp-pico = { version = "0.8.0", features = ["rt"] }
 mipidsi = "0.7.1"
 u8g2-fonts = "0.3.0"
+xpt2046 = "0.3.0"
+embedded-time = "0.12.1"
 
 # but you can use any BSP. Uncomment this to use the pro_micro_rp2040 BSP instead
 # sparkfun-pro-micro-rp2040 = "0.6"
