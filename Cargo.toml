@@ -42,10 +42,6 @@ embedded-time = "0.12.1"
 rp2040-hal = { version="0.9.0", features=["rt", "critical-section-impl", "rtic-monotonic"] }
 #rp2040-boot2 = "0.3"
 
-[[bin]]
-name = "old"
-path = "src/old.rs"
-
 # cargo build/run
 [profile.dev]
 codegen-units = 1

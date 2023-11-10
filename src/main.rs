@@ -15,7 +15,7 @@ mod app {
     use defmt::{debug, info};
     use embedded_graphics_core::prelude::Point;
     use usb_pd::{
-        pdo::{FixedSupply, PowerDataObject},
+        pdo::{PowerDataObject},
         sink::{Event, Request, Sink},
     };
 
@@ -32,7 +32,7 @@ mod app {
     //     _embedded_hal_blocking_i2c_Write, _embedded_hal_blocking_i2c_WriteRead,
     // };
     use fugit::{ExtU32, ExtU64, Instant, RateExtU32};
-    use xpt2046::{self, Xpt2046, Xpt2046Exti};
+    use xpt2046::{self};
 
     use rp_pico::hal::{
         clocks::{init_clocks_and_plls, Clock},
@@ -44,7 +44,7 @@ mod app {
 
     use display_interface_spi::SPIInterface;
     use mipidsi::{options::*, Builder};
-    use rp2040_hal::timer::{Alarm, Alarm0};
+    use rp2040_hal::timer::{Alarm0};
     use u8g2_fonts::{
         fonts,
         types::{FontColor, HorizontalAlignment, VerticalPosition},
@@ -355,7 +355,7 @@ mod app {
     fn update_display(mut c: update_display::Context) {
         let font = FontRenderer::new::<fonts::u8g2_font_crox2h_tf>();
         let text_color = Rgb565::WHITE;
-        let background_color = Rgb565::BLACK;
+        let _background_color = Rgb565::BLACK;
 
         let font_color = FontColor::Transparent(text_color);
         // let font_color = FontColor::WithBackground {
