@@ -17,10 +17,10 @@ heapless = "0.7.16"
 #ssd1351 = { git = "https://github.com/ftmazzone/ssd1351-rust.git", feature = ["no-std"] }
 ssd1351 = { version = "0.4.2", features = ["graphics"]}
 embedded-graphics = "0.8.1"
-usb-pd = { git = "https://github.com/fmckeogh/usb-pd-rs.git", branch="main" }
-fusb302b = { git = "https://github.com/fmckeogh/usb-pd-rs.git", branch="main" }
-#usb-pd = { path = "../usb-pd-rs/usb-pd" }
-#fusb302b = { path = "../usb-pd-rs/fusb302b" }
+#usb-pd = { git = "https://github.com/fmckeogh/usb-pd-rs.git", branch="main" }
+#fusb302b = { git = "https://github.com/fmckeogh/usb-pd-rs.git", branch="main" }
+usb-pd = { path = "../usb-pd-rs/usb-pd" }
+fusb302b = { path = "../usb-pd-rs/fusb302b" }
 defmt = "0.3"
 defmt-rtt = "0.4"
 panic-probe = { version = "0.3", features = ["print-defmt"] }

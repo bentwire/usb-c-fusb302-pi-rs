@@ -15,7 +15,7 @@ mod app {
     use defmt::{debug, info};
     use embedded_graphics_core::prelude::Point;
     use usb_pd::{
-        pdo::{PowerDataObject},
+        pdo::PowerDataObject,
         sink::{Event, Request, Sink},
     };
 
@@ -23,7 +23,7 @@ mod app {
         mono_font::{ascii::FONT_6X10, MonoTextStyle},
         pixelcolor::Rgb565,
         prelude::*,
-        //primitives::{Circle, PrimitiveStyle},
+        primitives::{PrimitiveStyle, Rectangle},
         text::{Alignment, Text},
     };
     use embedded_hal::digital::v2::{OutputPin, ToggleableOutputPin};
@@ -31,8 +31,7 @@ mod app {
     //     _embedded_hal_blocking_delay_DelayMs, _embedded_hal_blocking_i2c_Read,
     //     _embedded_hal_blocking_i2c_Write, _embedded_hal_blocking_i2c_WriteRead,
     // };
-    use fugit::{ExtU32, ExtU64, Instant, RateExtU32};
-    use xpt2046::{self};
+    use fugit::{ExtU64, Instant, RateExtU32};
 
     use rp_pico::hal::{
         clocks::{init_clocks_and_plls, Clock},
@@ -44,7 +43,7 @@ mod app {
 
     use display_interface_spi::SPIInterface;
     use mipidsi::{options::*, Builder};
-    use rp2040_hal::timer::{Alarm0};
+    use rp2040_hal::timer::Alarm0;
     use u8g2_fonts::{
         fonts,
         types::{FontColor, HorizontalAlignment, VerticalPosition},
@@ -66,15 +65,14 @@ mod app {
         pdos: heapless::Vec<PowerDataObject, 8>,
         display: crate::types::DisplayType,
         //fusb302: FUSB302BDev,
+        pdev: PDDev,
     }
 
     #[monotonic(binds = TIMER_IRQ_0, default = true)]
     type MyMono = Monotonic<Alarm0>;
 
     #[local]
-    struct Local {
-        pdev: PDDev,
-    }
+    struct Local {}
 
     #[init]
     fn init(c: init::Context) -> (Shared, Local, init::Monotonics) {
@@ -174,7 +172,7 @@ mod app {
         let spi0 = spi0.init(
             &mut resets,
             clocks.system_clock.freq(),
-            20u32.MHz(),
+            40u32.MHz(),
             embedded_hal::spi::MODE_0,
         );
 
@@ -253,8 +251,9 @@ mod app {
                 i2c0,
                 pdos,
                 display,
+                pdev: pd,
             },
-            Local { pdev: pd },
+            Local {},
             //init::Monotonics(Monotonic::new(timer, alarm)),
             init::Monotonics(MyMono::new(timer, alarm)),
         )
@@ -268,13 +267,13 @@ mod app {
         }
     }
 
-    #[task(local = [pdev], shared = [leds, pdos])]
+    #[task(shared = [leds, pdos, pdev])]
     fn pd_task(mut c: pd_task::Context) {
         // Convert from us to ms
         let now = monotonics::MyMono::now();
         let now: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks() / 1000);
 
-        let evnt = c.local.pdev.poll(now);
+        let evnt = c.shared.pdev.lock(|pd| pd.poll(now));
         if let Some(evnt) = evnt {
             match evnt {
                 Event::SourceCapabilitiesChanged(caps) => {
@@ -285,7 +284,7 @@ mod app {
 
                     c.shared.pdos.lock(|pdos| {
                         pdos.clear();
-                        pdos.extend_from_slice(caps.as_slice()).unwrap();
+                        //pdos.extend_from_slice(caps.as_slice()).unwrap();
                     });
 
                     // Take maximum voltage
@@ -300,6 +299,9 @@ mod app {
                                     supply.voltage() * 50,
                                     supply.max_current() * 10
                                 );
+                                c.shared.pdos.lock(|pdos| {
+                                    pdos.push(*cap).unwrap_or_default();
+                                });
                                 Some((i, supply))
                             } else {
                                 None
@@ -310,9 +312,11 @@ mod app {
 
                     info!("requesting supply {:?}@{}", supply, index);
 
-                    c.local.pdev.request(Request::RequestPower {
-                        index,
-                        current: supply.max_current() * 10,
+                    c.shared.pdev.lock(|pd| {
+                        pd.request(Request::RequestPower {
+                            index,
+                            current: supply.max_current() * 10,
+                        })
                     });
                 }
                 Event::PowerReady => {
@@ -351,8 +355,9 @@ mod app {
         pd_task::spawn_after(50_u64.micros()).unwrap();
     }
 
-    #[task(shared = [display, pdos], local = [count: u8 = 0])]
+    #[task(shared = [display, pdos, pdev], local = [count: u8 = 0])]
     fn update_display(mut c: update_display::Context) {
+        let fill = PrimitiveStyle::with_fill(Rgb565::CSS_BLUE_VIOLET);
         let font = FontRenderer::new::<fonts::u8g2_font_crox2h_tf>();
         let text_color = Rgb565::WHITE;
         let _background_color = Rgb565::BLACK;
@@ -362,6 +367,14 @@ mod app {
         //     fg: text_color,
         //     bg: background_color,
         // };
+
+        c.shared.display.lock(|dis| {
+            Rectangle::new(Point::new(0, 0), Size::new(240, 60))
+                .into_styled(fill)
+                .draw(dis)
+                .unwrap();
+            //dis.clear(Rgb565::BLACK).unwrap();
+        });
 
         c.shared.pdos.lock(|pdos| {
             for pdo in pdos.iter().enumerate() {
@@ -393,43 +406,33 @@ mod app {
                 }
             }
         });
-        *c.local.count += 1;
+        if *c.local.count == 0x7f {
+            let _index = c.shared.pdos.lock(|pdos| pdos.len() - 1);
+            let index = 0;
+            let pdo = c.shared.pdos.lock(|pdos| pdos[index]);
+            let supply = if let PowerDataObject::FixedSupply(supply) = pdo {
+                supply
+            } else {
+                panic!("WHAT?");
+            };
+            info!("requesting supply {:?}@{}", supply, index);
+
+            c.shared.pdev.lock(|pd| {
+                pd.request(Request::RequestPower {
+                    index,
+                    current: supply.max_current() * 10,
+                })
+            });
+        }
+
+        *c.local.count = c.local.count.wrapping_add(1);
+        // if *c.local.count == 0xff {
+        //     *c.local.count = 0;
+        // } else {
+        //     *c.local.count += 1;
+        // }
+
         update_display::spawn_after(500_u64.millis()).unwrap(); // 1 second
-    }
-
-    #[task(
-        shared = [leds, i2c0],
-        local = [tog: bool = false, which: u8 = 0],
-    )]
-    fn blink_led(mut c: blink_led::Context) {
-        //info!("BLINK {:?}", *c.local.which);
-        if *c.local.tog {
-            c.shared.leds.lock(|l| match *c.local.which {
-                0 => l.0.set_high().unwrap(),
-                1 => l.1.set_high().unwrap(),
-                2 => l.2.set_high().unwrap(),
-                3 => l.3.set_high().unwrap(),
-                4_u8..=u8::MAX => info!("WHAT?"),
-            });
-        } else {
-            c.shared.leds.lock(|l| match *c.local.which {
-                0 => l.0.set_low().unwrap(),
-                1 => l.1.set_low().unwrap(),
-                2 => l.2.set_low().unwrap(),
-                3 => l.3.set_low().unwrap(),
-                4_u8..=u8::MAX => info!("WHAT?"),
-            });
-        }
-        *c.local.which = *c.local.which + 1;
-        if *c.local.which >= 4 {
-            *c.local.which = 0;
-            *c.local.tog = !*c.local.tog;
-        }
-
-        //let now = monotonics::MyMono::now();
-        //let foo: Instant<u64, 1, 1000> = Instant::<u64, 1, 1000>::from_ticks(now.ticks());
-        //c.shared.pd.lock(|pd| pd.poll(foo));
-        blink_led::spawn_after(1000_u64.millis()).unwrap();
     }
 
     // #[task(binds = TIMER_IRQ_0, shared = [display])]
@@ -443,45 +446,3 @@ mod app {
     //     );
     // }
 }
-
-// fn callback(event: Event) -> Option<Response> {
-//     info!("CALLBACK");
-//     match event {
-//         Event::SourceCapabilitiesChanged(caps) => {
-//             info!("Capabilities changed: {}", caps.len());
-
-//             // Take maximum voltage
-//             let (index, supply) = caps
-//                 .iter()
-//                 .enumerate()
-//                 .filter_map(|(i, cap)| {
-//                     if let PowerDataObject::FixedSupply(supply) = cap {
-//                         debug!(
-//                             "supply @ {}: {}mV {}mA",
-//                             i,
-//                             supply.voltage() * 50,
-//                             supply.max_current() * 10
-//                         );
-//                         Some((i, supply))
-//                     } else {
-//                         None
-//                     }
-//                 })
-//                 .max_by(|(_, x), (_, y)| x.voltage().cmp(&y.voltage()))
-//                 .unwrap();
-
-//             info!("requesting supply {:?}@{}", supply, index);
-
-//             return Some(Response::RequestPower {
-//                 index,
-//                 current: supply.max_current() * 10,
-//             });
-//         }
-//         Event::PowerReady => info!("power ready"),
-//         Event::ProtocolChanged => info!("protocol changed"),
-//         Event::PowerAccepted => info!("power accepted"),
-//         Event::PowerRejected => info!("power rejected"),
-//     }
-
-//     None
-// }
